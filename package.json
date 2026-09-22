@@ -14,7 +14,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yixi/qq-email-mcp.git"
+    "url": "git+https://github.com/xieningqing/qq-email-mcp.git"
   },
   "publishConfig": {
     "access": "public",
