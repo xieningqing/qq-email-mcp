@@ -23,7 +23,7 @@ npm run init
 `npm run init` 会依次完成：
 
 - 写入配置模板到 `~/.qq-email-mcp/config.toml`
-- 交互式读取授权码（无回显）并加密存到 `~/.qq-email-mcp/credentials.json`
+- 交互式读取授权码（无回显）并加密存到 `~/.qq-email-mcp/credentials.json`（Windows 使用 DPAPI）
 - 输出可直接粘贴到客户端的 MCP 配置 JSON
 
 它也会打印当前推荐的客户端配置，通常不需要再手动设置 `cwd` 或环境变量。
@@ -44,7 +44,7 @@ node scripts/set-password.mjs qq-email-mcp your-account@qq.com
 
 如果需要非交互执行，可以把授权码作为第三个参数传入，但要注意本机 shell 历史。
 
-也可以只在本机开发时使用环境变量 `QQ_EMAIL_AUTH_CODE`。凭据文件位于用户目录下的 `.qq-email-mcp/credentials.json`，使用主机绑定密钥加密，权限尽量限制为当前用户。它不是操作系统钥匙串；不要把授权码写入 TOML、仓库或日志。
+也可以只在本机开发时使用环境变量 `QQ_EMAIL_AUTH_CODE`。凭据文件位于用户目录下的 `.qq-email-mcp/credentials.json`。在 Windows 上使用 **DPAPI（Windows 数据保护 API）加密**，密文绑定当前 Windows 用户账户，换用户或换机器无法解密；非 Windows 平台回退到主机派生密钥的 AES-256-GCM（属于混淆而非强保护）。不要把授权码写入 TOML、仓库或日志。
 
 本地凭据文件只保存一份账号凭据；再次执行 `set-password` 会覆盖旧凭据。多账号仍不属于 V1 范围。
 

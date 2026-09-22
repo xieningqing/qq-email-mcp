@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.2",
+    "@primno/dpapi": "2.0.1",
     "@xmldom/xmldom": "0.8.15",
     "imapflow": "^1.0.201",
     "jszip": "3.10.2",

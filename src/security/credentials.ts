@@ -1,8 +1,49 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AppError } from "../errors.js";
+
+interface DpapiBindings {
+  protectData(
+    data: Uint8Array,
+    entropy: Uint8Array | null,
+    scope: "CurrentUser" | "LocalMachine"
+  ): Uint8Array;
+  unprotectData(
+    data: Uint8Array,
+    entropy: Uint8Array | null,
+    scope: "CurrentUser" | "LocalMachine"
+  ): Uint8Array;
+}
+
+interface DpapiModule {
+  Dpapi: DpapiBindings;
+  isPlatformSupported: boolean;
+}
+
+let dpapiModule: DpapiModule | null = null;
+let dpapiLoadAttempted = false;
+
+function loadDpapi(): DpapiModule | null {
+  if (dpapiLoadAttempted) {
+    return dpapiModule;
+  }
+  dpapiLoadAttempted = true;
+  if (process.platform !== "win32") {
+    return null;
+  }
+
+  try {
+    // Loaded lazily so non-Windows installs do not require the native addon.
+    const loaded = createRequire(import.meta.url)("@primno/dpapi") as DpapiModule;
+    dpapiModule = loaded.isPlatformSupported ? loaded : null;
+  } catch {
+    dpapiModule = null;
+  }
+  return dpapiModule;
+}
 
 export interface CredentialStore {
   get(service: string, account: string): Promise<string | null>;
@@ -23,6 +64,7 @@ export class LocalCredentialStore implements CredentialStore {
         service?: string;
         account?: string;
         secret?: string;
+        protection?: string;
       };
       if (
         raw.service !== service ||
@@ -32,7 +74,13 @@ export class LocalCredentialStore implements CredentialStore {
         return null;
       }
 
-      return this.decrypt(raw.secret);
+      if (raw.protection === "dpapi") {
+        return this.decryptDpapi(raw.secret);
+      }
+
+      // Legacy host-derived encryption. Still readable so existing installs
+      // keep working; the next `set()` rewrites it with DPAPI.
+      return this.decryptPortable(raw.secret);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return null;
@@ -47,13 +95,15 @@ export class LocalCredentialStore implements CredentialStore {
     const directory = path.dirname(this.credentialFile);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const temporaryFile = `${this.credentialFile}.${randomBytes(6).toString("hex")}.tmp`;
+    const encrypted = this.encrypt(secret);
     await writeFile(
       temporaryFile,
       JSON.stringify(
         {
           service,
           account,
-          secret: this.encrypt(secret)
+          secret: encrypted.value,
+          protection: encrypted.protection
         },
         null,
         2
@@ -68,7 +118,44 @@ export class LocalCredentialStore implements CredentialStore {
     }
   }
 
-  private encrypt(value: string): string {
+  private encrypt(value: string): { value: string; protection: string } {
+    const dpapi = loadDpapi();
+    if (dpapi) {
+      const encrypted = dpapi.Dpapi.protectData(
+        Buffer.from(value, "utf8"),
+        this.entropy(),
+        "CurrentUser"
+      );
+      return {
+        value: Buffer.from(encrypted).toString("base64"),
+        protection: "dpapi"
+      };
+    }
+
+    return { value: this.encryptPortable(value), protection: "host-derived" };
+  }
+
+  private decryptDpapi(value: string): string {
+    const dpapi = loadDpapi();
+    if (!dpapi) {
+      throw new AppError(
+        "AUTH_FAILED",
+        "This credential was encrypted with Windows DPAPI and can only be read on the same Windows user account"
+      );
+    }
+    const decrypted = dpapi.Dpapi.unprotectData(
+      Buffer.from(value, "base64"),
+      this.entropy(),
+      "CurrentUser"
+    );
+    return Buffer.from(decrypted).toString("utf8");
+  }
+
+  private entropy(): Buffer {
+    return Buffer.from("qq-email-mcp", "utf8");
+  }
+
+  private encryptPortable(value: string): string {
     const key = this.localKey();
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", key, iv);
@@ -76,7 +163,7 @@ export class LocalCredentialStore implements CredentialStore {
     return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64");
   }
 
-  private decrypt(value: string): string {
+  private decryptPortable(value: string): string {
     const payload = Buffer.from(value, "base64");
     const iv = payload.subarray(0, 12);
     const tag = payload.subarray(12, 28);
@@ -147,7 +234,7 @@ export async function requireCredential(
   if (!credential) {
     throw new AppError(
       "CONFIG_MISSING",
-      `No authorization code found for ${account}. Run "npm run set-password -- qq-email-mcp ${account} YOUR_AUTH_CODE" or set QQ_EMAIL_AUTH_CODE.`,
+      `No authorization code found for ${account}. Run "npx -y qq-email-mcp init" to configure it, or set QQ_EMAIL_AUTH_CODE.`,
       { details: { service, account } }
     );
   }
