@@ -4,15 +4,58 @@
 
 ## 当前状态
 
-已经实现 TypeScript MCP Server、IMAP/SMTP 适配、MIME 规范化、附件沙箱、发送确认和 10 个 MCP 工具。项目已通过类型检查、构建和本地自动化测试，真实 QQ 邮箱联调仍需要用户提供授权码。
+已经实现 TypeScript MCP Server、IMAP/SMTP 适配、MIME 规范化、附件沙箱、发送确认和 10 个 MCP 工具。项目已通过类型检查、构建和本地自动化测试，并已通过真实 QQ 邮箱只读联调。
 
 运行时要求 Node.js `>=20.19`。
 
-当前 `package.json` 保留 `private: true`，定位为本机安装和自用，不直接发布到 npm registry。
+包已发布到 npm：`qq-email-mcp`。终端环境需能访问 `registry.npmjs.org`。
 
 ## 快速开始
 
-### 方式 A：一键初始化（推荐）
+在任意目录执行一次初始化：
+
+```bash
+npx -y qq-email-mcp init
+```
+
+`init` 会依次完成：
+
+- 写入配置模板到 `~/.qq-email-mcp/config.toml`
+- 交互式询问邮箱地址和授权码，授权码输入不回显
+- 将授权码加密写入 `~/.qq-email-mcp/credentials.json`（Windows 使用 DPAPI）
+- 输出可直接粘贴到客户端的 MCP 配置
+
+也可以用命名参数跳过交互：
+
+```bash
+npx -y qq-email-mcp init --account you@qq.com
+```
+
+可用参数：
+
+| 参数 | 说明 |
+|---|---|
+| `--account <email>` | QQ 邮箱地址，省略则交互询问 |
+| `--secret <code>` | 授权码；省略则交互询问（推荐省略，避免进入 shell 历史） |
+| `--config <path>` | 自定义配置文件路径 |
+| `--credentials <path>` | 自定义凭据文件路径 |
+
+出于安全考虑，`init` 在非交互环境下拒绝写入默认凭据文件，必须显式传入 `--credentials`。
+
+### 授权码说明
+
+授权码在 QQ 邮箱设置中开启 IMAP/SMTP 后生成，**不是 QQ 密码**。
+
+凭据存储方式：
+
+- 位置：`~/.qq-email-mcp/credentials.json`
+- Windows：使用 DPAPI 加密，密文绑定当前 Windows 用户账户，换用户或换机器无法解密
+- 非 Windows：回退到主机派生密钥的 AES-256-GCM（属于混淆，不是强保护）
+- 覆盖已有凭据前会自动备份为 `credentials.json.bak`
+
+本地凭据文件只保存一份账号凭据；多账号不属于 V1 范围。授权码不要写入 TOML、仓库或日志。
+
+### 从源码运行（开发用）
 
 ```bash
 npm install
@@ -20,33 +63,13 @@ npm run build
 npm run init
 ```
 
-`npm run init` 会依次完成：
-
-- 写入配置模板到 `~/.qq-email-mcp/config.toml`
-- 交互式读取授权码（无回显）并加密存到 `~/.qq-email-mcp/credentials.json`（Windows 使用 DPAPI）
-- 输出可直接粘贴到客户端的 MCP 配置 JSON
-
-它也会打印当前推荐的客户端配置，通常不需要再手动设置 `cwd` 或环境变量。
-
-### 方式 B：手动配置
+开发时也可以用环境变量作为兜底：
 
 ```bash
-npm install
-npm run build
-cp qq-email-mcp.example.toml qq-email-mcp.toml
+$env:QQ_EMAIL_AUTH_CODE = "你的授权码"
 ```
 
-把授权码写入本机凭据文件。推荐省略授权码参数，由脚本在终端中无回显地交互读取，避免出现在 shell 历史、进程列表或终端回显中：
-
-```bash
-node scripts/set-password.mjs qq-email-mcp your-account@qq.com
-```
-
-如果需要非交互执行，可以把授权码作为第三个参数传入，但要注意本机 shell 历史。
-
-也可以只在本机开发时使用环境变量 `QQ_EMAIL_AUTH_CODE`。凭据文件位于用户目录下的 `.qq-email-mcp/credentials.json`。在 Windows 上使用 **DPAPI（Windows 数据保护 API）加密**，密文绑定当前 Windows 用户账户，换用户或换机器无法解密；非 Windows 平台回退到主机派生密钥的 AES-256-GCM（属于混淆而非强保护）。不要把授权码写入 TOML、仓库或日志。
-
-本地凭据文件只保存一份账号凭据；再次执行 `set-password` 会覆盖旧凭据。多账号仍不属于 V1 范围。
+优先级低于本地凭据文件。
 
 启动 stdio 服务：
 
@@ -58,66 +81,110 @@ node dist/index.js
 
 配置查找按以下顺序进行，命中即用：
 
-1. 显式传入的 `QQ_EMAIL_MCP_CONFIG`
+1. 环境变量 `QQ_EMAIL_MCP_CONFIG` 指定的路径
 2. 当前工作目录的 `qq-email-mcp.toml`
 3. 包安装目录的 `qq-email-mcp.toml`
 4. 用户目录的 `~/.qq-email-mcp/config.toml`
 
-因此只要用 `npm run init` 写好 `~/.qq-email-mcp/config.toml`，客户端配置就能精简成：
+只要用 `init` 写好 `~/.qq-email-mcp/config.toml`，客户端配置就可以精简成：
+
+```json
+{
+  "mcpServers": {
+    "qq-email-mcp": {
+      "command": "npx",
+      "args": ["-y", "qq-email-mcp"]
+    }
+  }
+}
+```
+
+Codex 使用 TOML 配置，等价写法：
+
+```toml
+[mcp_servers.qq-email-mcp]
+type = "stdio"
+command = 'npx.cmd'
+args = ['-y', 'qq-email-mcp']
+```
+
+如果需要完全显式（例如多份配置并存），可以指定入口和配置文件：
 
 ```json
 {
   "mcpServers": {
     "qq-email-mcp": {
       "command": "node",
-      "args": ["E:/project/web/qq_email_mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-Windows 上也可以用仓库自带的包装脚本，只保留一个命令：
-
-```json
-{
-  "mcpServers": {
-    "qq-email-mcp": {
-      "command": "E:/project/web/qq_email_mcp/bin/qq-email-mcp.cmd"
-    }
-  }
-}
-```
-
-如果需要保持完全显式（例如多份配置并存），再使用传统写法：
-
-```json
-{
-  "mcpServers": {
-    "qq-email-mcp": {
-      "command": "node",
-      "args": ["E:/project/web/qq_email_mcp/dist/index.js"],
-      "cwd": "E:/project/web/qq_email_mcp",
+      "args": ["/path/to/dist/index.js"],
       "env": {
-        "QQ_EMAIL_MCP_CONFIG": "E:/project/web/qq_email_mcp/qq-email-mcp.toml"
+        "QQ_EMAIL_MCP_CONFIG": "/path/to/qq-email-mcp.toml"
       }
     }
   }
 }
 ```
 
-`QQ_EMAIL_MCP_CONFIG` 指向 TOML 配置；授权码不需要放进这里，它会从本地加密凭据文件读取。若客户端不支持 `cwd`，请使用绝对路径，并把 `QQ_EMAIL_MCP_CONFIG` 设为绝对路径。客户端接入后，先调用 `mail_status`，确认 `account` 与 `ready: true` 后再使用其他工具。
+授权码不需要放进客户端配置，它会从本地加密凭据文件读取。
 
-完成真实账号联调：
+客户端接入后，先调用 `mail_status`，确认 `account` 与 `ready: true` 后再使用其他工具。
+
+### 配置文件
+
+`~/.qq-email-mcp/config.toml` 由 `init` 生成，可手动调整：
+
+```toml
+[account]
+email = "your-account@qq.com"
+
+[permissions]
+read = true
+draft = false
+update = false
+send = false
+
+[imap]
+host = "imap.qq.com"
+port = 993
+secure = true
+
+[smtp]
+host = "smtp.qq.com"
+port = 465
+secure = true
+
+[security]
+credential_target = "qq-email-mcp"
+attachment_dir = "./downloads"
+max_attachment_bytes = 26214400
+max_total_attachment_bytes = 52428800
+allow_remote_images = false
+
+[send]
+save_sent = "never"
+```
+
+### 权限
+
+权限分为四档，默认只读：
+
+| 权限 | 默认 | 作用 |
+|---|---|---|
+| `read` | `true` | 读取、搜索、读取附件 |
+| `draft` | `false` | 创建/替换草稿（低风险写入，不发送） |
+| `update` | `false` | 标记已读、星标、移动、归档、垃圾箱 |
+| `send` | `false` | 发送、回复、转发 |
+
+开启 `draft`、`update`、`send` 前必须先开启 `read`。草稿不发送邮件、不需要确认令牌；真正发信必须走 `mail_send` 的一次性确认。
+
+### 只读联调
 
 ```bash
 npm run smoke
 ```
 
-`npm run smoke` 会读取 TOML、优先使用本地加密凭据，并在没有本地凭据时回退到 `QQ_EMAIL_AUTH_CODE`。随后它会通过真实 stdio 连接启动 MCP，列出工具，并依次执行 `mail_status`、`mail_folders` 和 `mail_list(limit=1)`。整个流程只读，不会发送邮件或修改邮箱内容。
+`npm run smoke` 优先使用本地加密凭据，并在没有本地凭据时回退到 `QQ_EMAIL_AUTH_CODE`。随后它通过真实 stdio 连接启动 MCP，列出工具，并依次执行 `mail_status`、`mail_folders` 和 `mail_list(limit=1)`。整个流程只读，不会发送邮件或修改邮箱内容。
 
 只有 IMAP/SMTP 都连通、标准文件夹存在、收件箱列表可读取时，命令才会返回成功退出码。
-
-配置路径默认是当前目录的 `qq-email-mcp.toml`，可以通过 `QQ_EMAIL_MCP_CONFIG` 覆盖。
 
 ## 文档
 
@@ -135,7 +202,7 @@ npm run smoke
 - 本地 stdio MCP
 - 官方 IMAP/SMTP
 - 默认只读
-- 发信、回复、转发和删除前确认
+- 发信、回复、转发前一次性确认；不提供永久删除
 - 对 AI 输出规范化邮件上下文，而不是原始 MIME
 
 ## 技术栈
@@ -179,8 +246,6 @@ npm run smoke
 - “看看最近未读” → `mail_list({ folder: "INBOX", recent_days: 30, unread_only: true, limit: 20 })`
 - “搜一下近期来自某人的邮件” → `mail_search({ folder: "INBOX", from: "someone@example.com", recent_days: 30, limit: 20 })`
 - “帮我起草一封回复草稿” → `mail_draft({ mode: "reply", message_ref: "...", text: "..." })`
-
-权限分为四档：`read`（默认开启）、`draft`（草稿，低风险写入）、`update`（标记/移动/归档）、`send`（发送）。草稿不发送邮件、不需要确认令牌；真正发信仍必须走 `mail_send` 的一次性确认。
 
 ## 目录约定
 
