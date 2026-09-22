@@ -12,6 +12,7 @@ import {
 
 function createService(options: {
   read?: boolean;
+  draft?: boolean;
   update?: boolean;
   send?: boolean;
 } = {}) {
@@ -21,6 +22,7 @@ function createService(options: {
   const service = new MailService({
     config: testConfig({
       read: options.read ?? true,
+      draft: options.draft ?? false,
       update: options.update ?? false,
       send: options.send ?? false
     }),
@@ -135,7 +137,10 @@ describe("MailService", () => {
 
     const listed = await service.list({ limit: 1 });
 
-    expect(listed.messages[0]?.date).toBe("2026-09-21T02:00:00.000Z");
+    expect(new Date(listed.messages[0]!.date).toISOString()).toBe(
+      "2026-09-21T02:00:00.000Z"
+    );
+    expect(listed.messages[0]!.date).toMatch(/[+-]\d{2}:\d{2}$/);
   });
 
   it("rejects stale cursors after UIDVALIDITY changes", async () => {
@@ -245,6 +250,50 @@ describe("MailService", () => {
       hasAttachments: true,
       attachmentCount: 1
     });
+  });
+
+  it("saves a draft to the Drafts folder without sending", async () => {
+    const { service, imap, smtp } = createService({ draft: true });
+
+    const result = await service.draft({
+      mode: "new",
+      to: ["recipient@example.com"],
+      subject: "Draft subject",
+      text: "Draft body"
+    });
+
+    expect(result).toMatchObject({
+      status: "saved",
+      folder: "Drafts",
+      subject: "Draft subject"
+    });
+    expect(imap.appends).toHaveLength(1);
+    expect(imap.appends[0]?.folder).toBe("Drafts");
+    expect(imap.appends[0]?.flags).toContain("\\Draft");
+    expect(smtp.sent).toHaveLength(0);
+  });
+
+  it("rejects drafts when draft and update permissions are disabled", async () => {
+    const { service, imap } = createService();
+
+    await expect(
+      service.draft({
+        mode: "new",
+        to: ["recipient@example.com"],
+        subject: "Draft subject",
+        text: "Draft body"
+      })
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(imap.appends).toHaveLength(0);
+  });
+
+  it("allows saving an incomplete draft", async () => {
+    const { service, imap } = createService({ draft: true });
+
+    const result = await service.draft({ subject: "Half-written" });
+
+    expect(result).toMatchObject({ status: "saved", folder: "Drafts" });
+    expect(imap.appends).toHaveLength(1);
   });
 
   it("requires a preview confirmation before sending", async () => {

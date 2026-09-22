@@ -4,6 +4,16 @@ import { createHash } from "node:crypto";
 import { simpleParser } from "mailparser";
 import type { AttachmentSummary, MailAddress } from "../domain/mail.js";
 
+function toLocalIsoString(value: Date): string {
+  const offsetMinutes = -value.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absoluteOffset / 60)).padStart(2, "0");
+  const minutes = String(absoluteOffset % 60).padStart(2, "0");
+  const local = new Date(value.getTime() + offsetMinutes * 60_000);
+  return `${local.toISOString().slice(0, -1)}${sign}${hours}:${minutes}`;
+}
+
 export interface NormalizedAttachment extends AttachmentSummary {
   content: Buffer;
 }
@@ -341,7 +351,7 @@ export async function normalizeMessage(
     cc: addressList(mail.cc),
     bcc: addressList(mail.bcc),
     replyTo: addressList(mail.replyTo),
-    date: (hasUsableDate ? parsedDate : new Date()).toISOString(),
+    date: toLocalIsoString(hasUsableDate ? parsedDate : new Date()),
     dateMissing: !hasUsableDate,
     messageId: normalizeMessageId(mail.messageId ?? headerString(mail, "message-id")),
     inReplyTo: normalizeMessageId(mail.inReplyTo ?? headerString(mail, "in-reply-to")),

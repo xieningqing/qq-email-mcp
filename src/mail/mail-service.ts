@@ -113,6 +113,25 @@ export interface UpdateInput {
   targetFolder?: string | undefined;
 }
 
+export interface DraftInput {
+  mode?: "new" | "reply" | "reply_all" | "forward" | undefined;
+  messageRef?: string | undefined;
+  to?: string[] | undefined;
+  cc?: string[] | undefined;
+  bcc?: string[] | undefined;
+  subject?: string | undefined;
+  text?: string | undefined;
+  html?: string | undefined;
+  includeOriginal?: boolean | undefined;
+  includeOriginalAttachments?: boolean | undefined;
+  attachments?: Array<{
+    filename: string;
+    contentType?: string | undefined;
+    contentBase64: string;
+  }> | undefined;
+  messageRefToUpdate?: string | undefined;
+}
+
 interface ResolvedMessage {
   folder: string;
   uidValidity: string;
@@ -218,6 +237,19 @@ export class MailService {
     );
   }
 
+  async draft(input: DraftInput): Promise<Record<string, unknown>> {
+    return this.audited(
+      "mail_draft",
+      input.messageRefToUpdate ? "update_draft" : "create_draft",
+      () => this.draftInternal(input),
+      {},
+      (result) => ({
+        result: result.status === "failed" ? "failure" : "success",
+        ...(result.status === "failed" ? { errorCode: "IMAP_OPERATION_FAILED" } : {})
+      })
+    );
+  }
+
   async update(input: UpdateInput) {
     return this.audited(
       "mail_update",
@@ -285,6 +317,7 @@ export class MailService {
       capabilities,
       permissions: {
         read: this.options.config.permissions.read,
+        draft: this.options.config.permissions.draft || this.options.config.permissions.update,
         update: this.options.config.permissions.update,
         send: this.options.config.permissions.send
       },
@@ -825,8 +858,12 @@ export class MailService {
     }
   }
 
-  private async resolveSendInput(input: SendInput): Promise<OutgoingMessage> {
+  private async resolveSendInput(
+    input: SendInput,
+    options: { allowIncomplete?: boolean } = {}
+  ): Promise<OutgoingMessage> {
     const mode = input.mode ?? "new";
+    const allowIncomplete = options.allowIncomplete ?? false;
     rejectHeaderInjection(input.subject, "subject");
     const parsedAttachments = (input.attachments ?? []).map((attachment) => ({
       filename: sanitizeFilename(attachment.filename),
@@ -836,16 +873,17 @@ export class MailService {
 
     if (mode === "new") {
       if (
-        !input.to?.length ||
-        !input.subject?.trim() ||
-        (!input.text?.trim() && !input.html?.trim())
+        !allowIncomplete &&
+        (!input.to?.length ||
+          !input.subject?.trim() ||
+          (!input.text?.trim() && !input.html?.trim()))
       ) {
         throw new AppError(
           "INVALID_INPUT",
           "New messages require to, subject and at least one of text or html"
         );
       }
-      const to = normalizeRecipientList(input.to);
+      const to = normalizeRecipientList(input.to ?? []);
       const cc = normalizeRecipientList(input.cc ?? []);
       const bcc = normalizeRecipientList(input.bcc ?? []);
 
@@ -854,7 +892,7 @@ export class MailService {
         to,
         cc: cc.length > 0 ? cc : undefined,
         bcc: bcc.length > 0 ? bcc : undefined,
-        subject: input.subject,
+        subject: input.subject ?? "",
         text: input.text?.trim() ? input.text : "",
         html: input.html,
         attachments: parsedAttachments
@@ -929,7 +967,7 @@ export class MailService {
           )
         : normalizeRecipients(input.cc ?? []);
 
-    if (to.length === 0) {
+    if (to.length === 0 && !allowIncomplete) {
       throw new AppError("INVALID_INPUT", "No recipient was found for this message");
     }
 
@@ -1016,6 +1054,81 @@ export class MailService {
     }
 
     await this.options.imap.append(sent.name, raw, ["\\Seen"]);
+  }
+
+  private async draftInternal(input: DraftInput): Promise<Record<string, unknown>> {
+    this.assertDraftAllowed();
+
+    const payload = await this.resolveSendInput(
+      {
+        mode: input.mode,
+        messageRef: input.messageRef,
+        to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+        includeOriginal: input.includeOriginal,
+        includeOriginalAttachments: input.includeOriginalAttachments,
+        attachments: input.attachments
+      },
+      { allowIncomplete: true }
+    );
+
+    const drafts = await this.resolveDraftFolder();
+    const raw = await this.options.smtp.compile(payload);
+
+    let replaced: ResolvedMessage | null = null;
+    if (input.messageRefToUpdate) {
+      replaced = decodeMessageRef(input.messageRefToUpdate);
+      const snapshot = await this.options.imap.openFolder(replaced.folder);
+      if (snapshot.uidValidity !== replaced.uidValidity) {
+        throw new AppError(
+          "STALE_MESSAGE_REF",
+          "Mailbox UIDVALIDITY changed; refresh the draft reference"
+        );
+      }
+    }
+
+    // Write the replacement first so a failure cannot lose the existing draft.
+    await this.options.imap.append(drafts.name, raw, ["\\Draft"]);
+    if (replaced) {
+      const trash = this.folderCache?.find((folder) => folder.role === "trash");
+      if (trash?.selectable) {
+        await this.options.imap.moveMessage(replaced.uid, trash.name);
+      }
+    }
+
+    return {
+      status: "saved",
+      folder: drafts.name,
+      subject: payload.subject,
+      to: payload.to,
+      cc: payload.cc ?? [],
+      bcc: payload.bcc ?? [],
+      attachment_count: payload.attachments?.length ?? 0,
+      ...(replaced ? { replaced: true } : {})
+    };
+  }
+
+  private async resolveDraftFolder(): Promise<FolderInfo> {
+    this.folderCache ??= await this.options.imap.listFolders();
+    const drafts = this.folderCache.find(
+      (folder) => folder.role === "drafts" || folder.role === "draft"
+    );
+    if (!drafts) {
+      throw new AppError("FOLDER_NOT_FOUND", "Unable to resolve the Drafts folder", {
+        details: {
+          role: "drafts",
+          available: this.folderCache.map((folder) => folder.name)
+        }
+      });
+    }
+    if (!drafts.selectable) {
+      throw new AppError("FOLDER_NOT_FOUND", "The resolved Drafts folder is not selectable");
+    }
+    return drafts;
   }
 
   private async resolveTargetFolder(
@@ -1529,6 +1642,12 @@ export class MailService {
     }
   }
 
+  private assertDraftAllowed(): void {
+    if (!this.options.config.permissions.draft && !this.options.config.permissions.update) {
+      throw new AppError("PERMISSION_DENIED", "Draft permission is disabled");
+    }
+  }
+
   private assertUpdateAllowed(): void {
     if (!this.options.config.permissions.update) {
       throw new AppError("PERMISSION_DENIED", "Update permission is disabled");
@@ -1663,11 +1782,21 @@ function threadRootRef(message: NormalizedMessage): string | null {
 function safeIsoDate(...candidates: Array<Date | null | undefined>): string {
   for (const candidate of candidates) {
     if (candidate && !Number.isNaN(candidate.getTime())) {
-      return candidate.toISOString();
+      return toLocalIsoString(candidate);
     }
   }
 
-  return new Date().toISOString();
+  return toLocalIsoString(new Date());
+}
+
+export function toLocalIsoString(value: Date): string {
+  const offsetMinutes = -value.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absoluteOffset / 60)).padStart(2, "0");
+  const minutes = String(absoluteOffset % 60).padStart(2, "0");
+  const local = new Date(value.getTime() + offsetMinutes * 60_000);
+  return `${local.toISOString().slice(0, -1)}${sign}${hours}:${minutes}`;
 }
 
 function validateSearchDates(

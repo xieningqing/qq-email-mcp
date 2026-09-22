@@ -3,6 +3,7 @@ email = "your-account@qq.com"
 
 [permissions]
 read = true
+draft = false
 update = false
 send = false
 

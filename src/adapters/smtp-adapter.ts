@@ -43,6 +43,7 @@ export interface SmtpAdapterOptions {
 
 export interface SmtpPort {
   verify(): Promise<void>;
+  compile(message: OutgoingMessage): Promise<Buffer>;
   send(message: OutgoingMessage, raw?: Buffer): Promise<SendResult>;
   close(): void;
 }

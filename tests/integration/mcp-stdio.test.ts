@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const projectRoot = path.resolve(import.meta.dirname, "../..");
 
 describe("MCP stdio transport", () => {
-  it("initializes and lists the nine email tools", async () => {
+  it("initializes and lists the ten email tools", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [path.join(projectRoot, "dist", "index.js")],
@@ -30,6 +30,7 @@ describe("MCP stdio transport", () => {
       expect(names).toEqual([
         "mail_attachment",
         "mail_digest",
+        "mail_draft",
         "mail_folders",
         "mail_get",
         "mail_list",

@@ -38,6 +38,7 @@ const folderSchema = z.object({
 });
 const permissionSchema = z.object({
   read: z.boolean(),
+  draft: z.boolean(),
   update: z.boolean(),
   send: z.boolean()
 });
@@ -851,6 +852,75 @@ export function createMcpServer(mail: MailService): McpServer {
           confirmationToken: result.confirmationToken as string
         })
       );
+    })
+  );
+
+  server.registerTool(
+    "mail_draft",
+    {
+      title: "Save email draft",
+      description:
+        "Create or replace an email draft in the Drafts folder. This is a low-risk write: it never sends mail and does not require a confirmation token. Requires draft permission (or update permission).",
+      inputSchema: {
+        mode: z.enum(["new", "reply", "reply_all", "forward"]).optional(),
+        message_ref: messageRef.optional(),
+        message_ref_to_update: messageRef
+          .optional()
+          .describe("Existing draft message_ref to replace; omit to create a new draft"),
+        to: z.array(z.string().email()).optional(),
+        cc: z.array(z.string().email()).optional(),
+        bcc: z.array(z.string().email()).optional(),
+        subject: z.string().optional(),
+        text: z.string().optional(),
+        html: z.string().optional(),
+        include_original: z.boolean().optional(),
+        include_original_attachments: z.boolean().optional(),
+        attachments: z
+          .array(
+            z.object({
+              filename: z.string().min(1),
+              content_type: z.string().optional(),
+              content_base64: z.string().min(1)
+            })
+          )
+          .max(100)
+          .optional()
+      },
+      outputSchema: {
+        status: z.literal("saved"),
+        folder: z.string(),
+        subject: z.string(),
+        to: z.array(z.string()),
+        cc: z.array(z.string()),
+        bcc: z.array(z.string()),
+        attachment_count: z.number().int().nonnegative()
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    withInputTool(async (input) => {
+      return mail.draft({
+        mode: input.mode,
+        messageRef: input.message_ref,
+        messageRefToUpdate: input.message_ref_to_update,
+        to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+        includeOriginal: input.include_original,
+        includeOriginalAttachments: input.include_original_attachments,
+        attachments: input.attachments?.map((attachment) => ({
+          filename: attachment.filename,
+          ...(attachment.content_type ? { contentType: attachment.content_type } : {}),
+          contentBase64: attachment.content_base64
+        }))
+      });
     })
   );
 

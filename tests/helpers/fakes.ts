@@ -30,6 +30,13 @@ export class FakeImap implements ImapPort {
       specialUse: "\\Sent"
     },
     {
+      name: "Drafts",
+      displayName: "Drafts",
+      role: "drafts",
+      selectable: true,
+      specialUse: "\\Drafts"
+    },
+    {
       name: "Archive",
       displayName: "Archive",
       role: "archive",
@@ -180,6 +187,12 @@ export class FakeSmtp implements SmtpPort {
     this.verified = true;
   }
 
+  async compile(message: OutgoingMessage): Promise<Buffer> {
+    return Buffer.from(
+      `To: ${message.to.join(", ")}\r\nSubject: ${message.subject}\r\n\r\n${message.text}`
+    );
+  }
+
   async send(message: OutgoingMessage, raw?: Buffer): Promise<SendResult> {
     this.sent.push(message);
     return {
@@ -211,6 +224,7 @@ export function testConfig(overrides: Partial<AppConfig["permissions"]> = {}): A
     },
     permissions: {
       read: true,
+      draft: false,
       update: false,
       send: false,
       ...overrides

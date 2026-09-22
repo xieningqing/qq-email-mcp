@@ -23,6 +23,7 @@
 | `mail_get` | 只读 | 读取元数据、正文、线程或 AI 上下文 |
 | `mail_attachment` | 只读 | 读取或下载附件 |
 | `mail_send` | 写入 | 新邮件、回复、全部回复、转发 |
+| `mail_draft` | 写入 | 创建或替换草稿（不发送） |
 | `mail_update` | 写入 | 已读、未读、星标、移动、归档、垃圾箱 |
 
 ## 3. mail_status
@@ -45,6 +46,7 @@
   "folders": "ok",
   "permissions": {
     "read": true,
+    "draft": false,
     "update": false,
     "send": false
   },
@@ -392,7 +394,43 @@ AI 上下文模式输出：
 
 发送确认令牌与规范化内容绑定，且只能消费一次。SMTP 超时或连接中断时，服务端不会自动重放发送；`SMTP_SEND_FAILED` 或 `TIMEOUT` 返回后，必须先检查已发送文件夹和收件人状态，再决定是否重新生成预览和确认令牌。该机制不承诺跨进程、跨设备幂等，V1 的定位是单进程本机 MCP。
 
-## 10. mail_update
+## 10. mail_draft
+
+输入：
+
+```json
+{
+  "mode": "new",
+  "to": ["recipient@example.com"],
+  "subject": "Draft subject",
+  "text": "Draft body"
+}
+```
+
+`mail_draft` 用于创建或替换草稿，写入 IMAP Drafts 文件夹并带 `\Draft` 标志：
+
+- 不发送邮件，不消耗 SMTP 发送配额，也不需要确认令牌。
+- 需要 `permissions.draft` 或 `permissions.update`。
+- `message_ref_to_update` 指定要替换的既有草稿；省略则新建草稿。
+- `mode` 支持 `new`、`reply`、`reply_all`、`forward`，语义与 `mail_send` 相同。
+
+输出：
+
+```json
+{
+  "status": "saved",
+  "folder": "Drafts",
+  "subject": "Draft subject",
+  "to": ["recipient@example.com"],
+  "cc": [],
+  "bcc": [],
+  "attachment_count": 0
+}
+```
+
+草稿是低风险写入，因此不受发送确认令牌约束；真正发信仍必须走 `mail_send` 的确认流程。
+
+## 11. mail_update
 
 输入：
 
@@ -442,7 +480,7 @@ AI 上下文模式输出：
 
 `mail_update` 声明了 MCP `outputSchema`。成功结果包含 `updated`、`failed` 和 `action`；失败项包含 `message_ref`、`code`、`message`、`retryable`。错误结果使用 `isError`。
 
-## 11. 错误码
+## 12. 错误码
 
 | 错误码 | 含义 | 是否可重试 |
 |---|---|---|

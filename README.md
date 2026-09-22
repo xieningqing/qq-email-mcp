@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-已经实现 TypeScript MCP Server、IMAP/SMTP 适配、MIME 规范化、附件沙箱、发送确认和 9 个 MCP 工具。项目已通过类型检查、构建和本地自动化测试，真实 QQ 邮箱联调仍需要用户提供授权码。
+已经实现 TypeScript MCP Server、IMAP/SMTP 适配、MIME 规范化、附件沙箱、发送确认和 10 个 MCP 工具。项目已通过类型检查、构建和本地自动化测试，真实 QQ 邮箱联调仍需要用户提供授权码。
 
 运行时要求 Node.js `>=20.19`。
 
@@ -116,6 +116,7 @@ npm run smoke
 - 回复线程聚合、引用历史与签名拆分
 - 附件下载、PDF、DOCX、XLSX、PPTX 文本提取
 - 新邮件、回复、全部回复和转发
+- 草稿：创建或替换 Drafts 中的草稿（低风险写入，不触发发送）
 - 转发原附件
 - 已读、未读、星标、移动、归档和垃圾箱
 - 移动优先使用 `UID MOVE`，不支持 `MOVE` 时使用安全回退
@@ -127,6 +128,9 @@ npm run smoke
 - “看看近期邮件标题” → `mail_list({ folder: "INBOX", recent_days: 30, limit: 20, include_snippet: false })`
 - “看看最近未读” → `mail_list({ folder: "INBOX", recent_days: 30, unread_only: true, limit: 20 })`
 - “搜一下近期来自某人的邮件” → `mail_search({ folder: "INBOX", from: "someone@example.com", recent_days: 30, limit: 20 })`
+- “帮我起草一封回复草稿” → `mail_draft({ mode: "reply", message_ref: "...", text: "..." })`
+
+权限分为四档：`read`（默认开启）、`draft`（草稿，低风险写入）、`update`（标记/移动/归档）、`send`（发送）。草稿不发送邮件、不需要确认令牌；真正发信仍必须走 `mail_send` 的一次性确认。
 
 ## 目录约定
 

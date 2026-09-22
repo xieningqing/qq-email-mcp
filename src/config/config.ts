@@ -11,10 +11,11 @@ const configSchema = z.object({
   permissions: z
     .object({
       read: z.boolean().default(true),
+      draft: z.boolean().default(false),
       update: z.boolean().default(false),
       send: z.boolean().default(false)
     })
-    .default({ read: true, update: false, send: false }),
+    .default({ read: true, draft: false, update: false, send: false }),
   imap: z
     .object({
       host: z.string().min(1).default("imap.qq.com"),
@@ -61,6 +62,7 @@ export interface AppConfig {
   };
   permissions: {
     read: boolean;
+    draft: boolean;
     update: boolean;
     send: boolean;
   };
@@ -142,12 +144,14 @@ export async function loadConfig(options: ConfigLoadOptions = {}): Promise<AppCo
   }
 
   if (
-    (parsed.data.permissions.update || parsed.data.permissions.send) &&
+    (parsed.data.permissions.draft ||
+      parsed.data.permissions.update ||
+      parsed.data.permissions.send) &&
     !parsed.data.permissions.read
   ) {
     throw new AppError(
       "INVALID_CONFIG",
-      "permissions.read must be enabled when permissions.update or permissions.send is enabled"
+      "permissions.read must be enabled when permissions.draft, permissions.update or permissions.send is enabled"
     );
   }
 

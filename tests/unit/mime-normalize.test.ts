@@ -219,7 +219,8 @@ describe("normalizeMessage", () => {
     const result = await normalizeMessage(source);
 
     expect(result.dateMissing).toBe(false);
-    expect(result.date).toBe("2026-09-21T02:00:00.000Z");
+    expect(new Date(result.date).toISOString()).toBe("2026-09-21T02:00:00.000Z");
+    expect(result.date).toMatch(/[+-]\d{2}:\d{2}$/);
   });
 
   it("preserves a valid parsed Date header", async () => {
@@ -241,7 +242,8 @@ describe("normalizeMessage", () => {
     const result = await normalizeMessage(source);
 
     expect(result.dateMissing).toBe(false);
-    expect(result.date).toBe("2026-09-21T02:00:00.000Z");
+    expect(new Date(result.date).toISOString()).toBe("2026-09-21T02:00:00.000Z");
+    expect(result.date).toMatch(/[+-]\d{2}:\d{2}$/);
   });
 
   it("separates quoted history without losing either part", async () => {
