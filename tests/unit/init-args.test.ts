@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInitArgs } from "../../src/init-args.js";
+import { InitHelpRequested, parseInitArgs } from "../../src/init-args.js";
 
 describe("init argument parsing", () => {
   it("accepts named flags", () => {
@@ -37,5 +37,14 @@ describe("init argument parsing", () => {
   it("accepts inline --flag=value form", () => {
     const args = parseInitArgs(["--account=me@qq.com"]);
     expect(args.account).toBe("me@qq.com");
+  });
+
+  it("stops parsing when help is requested", () => {
+    expect(() => parseInitArgs(["--help"])).toThrow(InitHelpRequested);
+    expect(() => parseInitArgs(["-h"])).toThrow(InitHelpRequested);
+    // Help must terminate even when mixed with other flags.
+    expect(() => parseInitArgs(["--account", "me@qq.com", "--help"])).toThrow(
+      InitHelpRequested
+    );
   });
 });

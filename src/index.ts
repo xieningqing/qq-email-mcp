@@ -14,14 +14,22 @@ import {
 import { FileAuditLogger } from "./security/audit.js";
 import { verifyRuntimePaths } from "./security/runtime-paths.js";
 import { initialize } from "./init.js";
-import { initHelpText, parseInitArgs } from "./init-args.js";
+import { InitHelpRequested, initHelpText, parseInitArgs } from "./init-args.js";
 import path from "node:path";
 
 async function main(): Promise<void> {
   if (process.argv[2] === "init") {
-    const args = parseInitArgs(process.argv.slice(3), {
-      onHelp: () => process.stderr.write(initHelpText())
-    });
+    let args;
+    try {
+      args = parseInitArgs(process.argv.slice(3), {
+        onHelp: () => process.stderr.write(initHelpText())
+      });
+    } catch (error) {
+      if (error instanceof InitHelpRequested) {
+        return;
+      }
+      throw error;
+    }
     const result = await initialize({
       configPath: args.configPath,
       account: args.account,

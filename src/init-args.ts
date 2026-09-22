@@ -5,6 +5,14 @@ export interface InitArgs {
   secret?: string | undefined;
 }
 
+/** Thrown when the user asks for help. Callers should exit with code 0. */
+export class InitHelpRequested extends Error {
+  constructor() {
+    super("help requested");
+    this.name = "InitHelpRequested";
+  }
+}
+
 /**
  * Parses named flags only. Positional arguments are rejected on purpose:
  * a single missing value used to shift every later argument into the wrong
@@ -23,7 +31,9 @@ export function parseInitArgs(
     }
     if (token === "--help" || token === "-h") {
       options.onHelp?.();
-      continue;
+      // Help is a terminal action: signal the caller to stop, never fall
+      // through into initialization.
+      throw new InitHelpRequested();
     }
     if (!token.startsWith("--")) {
       throw new Error(
