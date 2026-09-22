@@ -1,0 +1,27 @@
+[account]
+email = "your-account@qq.com"
+
+[permissions]
+read = true
+update = false
+send = false
+
+[imap]
+host = "imap.qq.com"
+port = 993
+secure = true
+
+[smtp]
+host = "smtp.qq.com"
+port = 465
+secure = true
+
+[security]
+credential_target = "qq-email-mcp"
+attachment_dir = "./downloads"
+max_attachment_bytes = 26214400
+max_total_attachment_bytes = 52428800
+allow_remote_images = false
+
+[send]
+save_sent = "never"
