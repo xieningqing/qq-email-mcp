@@ -66,10 +66,20 @@ export function defaultCredentialsPath(): string {
 
 export async function initialize(options: InitOptions = {}): Promise<InitResult> {
   const configPath = path.resolve(options.configPath ?? defaultConfigPath());
+  const usesDefaultCredentials = options.credentialsPath === undefined;
+  if (usesDefaultCredentials && !process.stdin.isTTY && !options.credentialStore) {
+    // Non-interactive runs (scripts, CI, an agent's smoke test) must opt in
+    // explicitly before overwriting the real global credential file.
+    throw new Error(
+      "Refusing to write the default credential file in a non-interactive run. " +
+        "Pass --credentials <path> to target a specific file."
+    );
+  }
   const credentialsPath = path.resolve(
     options.credentialsPath ?? defaultCredentialsPath()
   );
-  const account = options.account ?? (await promptText("QQ Mail address: "));
+  const prompts = new PromptReader();
+  const account = options.account ?? (await prompts.text("QQ Mail address: "));
   if (!account) {
     throw new Error("Account email is required");
   }
@@ -84,7 +94,7 @@ export async function initialize(options: InitOptions = {}): Promise<InitResult>
     });
   }
 
-  const secret = options.secret ?? (await promptHidden("QQ Mail authorization code: "));
+  const secret = options.secret ?? (await prompts.hidden("QQ Mail authorization code: "));
   if (!secret) {
     throw new Error("Authorization code is required");
   }
@@ -108,56 +118,114 @@ export async function initialize(options: InitOptions = {}): Promise<InitResult>
     clientConfig: {
       mcpServers: {
         "qq-email-mcp": {
-          command: process.execPath,
-          args: [
-            path.join(path.dirname(fileURLToPath(import.meta.url)), "index.js")
-          ]
+          // The package name is the only stable reference: under npx the
+          // install lives in a throwaway cache directory.
+          command: "npx",
+          args: ["-y", "qq-email-mcp"]
         }
       }
     }
   };
 }
 
-async function promptText(message: string): Promise<string> {
-  process.stderr.write(message);
-  for await (const chunk of process.stdin) {
-    return chunk.toString("utf8").split(/\r?\n/, 1)[0]!.trim();
+/**
+ * Reads answers one at a time. Piped stdin (the common npx case) is buffered
+ * once and split by line, because consuming the stream twice would abort the
+ * second prompt.
+ */
+class PromptReader {
+  private pipedLines: string[] | null = null;
+  private lineBuffer = "";
+
+  async text(message: string): Promise<string> {
+    process.stderr.write(message);
+    if (!process.stdin.isTTY) {
+      this.pipedLines ??= await readAllStdin();
+      return (this.pipedLines.shift() ?? "").trim();
+    }
+    return this.readLineFromEvents(false);
   }
-  return "";
+
+  async hidden(message: string): Promise<string> {
+    const input = process.stdin;
+    const output = process.stderr;
+    if (!input.isTTY) {
+      output.write(message);
+      this.pipedLines ??= await readAllStdin();
+      return (this.pipedLines.shift() ?? "").trim();
+    }
+
+    output.write(message);
+    return this.readLineFromEvents(true);
+  }
+
+  /**
+   * Reads a single line using event listeners. Using `for await` would destroy
+   * the shared stdin stream on the first `return`, so a second prompt would
+   * fail with "The operation was aborted".
+   */
+  private readLineFromEvents(mask: boolean): Promise<string> {
+    const input = process.stdin;
+    const output = process.stderr;
+
+    return new Promise<string>((resolve, reject) => {
+      if (mask) {
+        input.setRawMode(true);
+      }
+      input.resume();
+      let value = this.lineBuffer;
+      this.lineBuffer = "";
+
+      const cleanup = () => {
+        input.off("data", onData);
+        input.off("error", onError);
+        if (mask) {
+          input.setRawMode(false);
+        }
+        input.pause();
+      };
+
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+
+      const onData = (chunk: Buffer | string) => {
+        const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        for (const character of text) {
+          if (character === "\r" || character === "\n") {
+            if (mask) {
+              output.write("\n");
+            }
+            cleanup();
+            resolve(value.trim());
+            return;
+          }
+          if (character === "\u0003") {
+            if (mask) {
+              output.write("\n");
+            }
+            cleanup();
+            process.exit(130);
+          }
+          if (mask && (character === "\u007f" || character === "\b")) {
+            value = value.slice(0, -1);
+            continue;
+          }
+          value += character;
+        }
+      };
+
+      input.on("data", onData);
+      input.once("error", onError);
+    });
+  }
 }
 
-async function promptHidden(message: string): Promise<string> {
-  const input = process.stdin;
-  const output = process.stderr;
-  if (!input.isTTY) {
-    return promptText(message);
+async function readAllStdin(): Promise<string[]> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
   }
-
-  output.write(message);
-  input.setRawMode(true);
-  input.resume();
-  let value = "";
-  try {
-    for await (const chunk of input) {
-      for (const character of chunk.toString("utf8")) {
-        if (character === "\r" || character === "\n") {
-          output.write("\n");
-          return value.trim();
-        }
-        if (character === "\u0003") {
-          output.write("\n");
-          process.exit(130);
-        }
-        if (character === "\u007f" || character === "\b") {
-          value = value.slice(0, -1);
-          continue;
-        }
-        value += character;
-      }
-    }
-  } finally {
-    input.setRawMode(false);
-    input.pause();
-  }
-  return value.trim();
+  return Buffer.concat(chunks).toString("utf8").split(/\r?\n/);
 }

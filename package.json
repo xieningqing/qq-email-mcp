@@ -1,10 +1,25 @@
 {
   "name": "qq-email-mcp",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "AI-oriented QQ email MCP server built on IMAP and SMTP.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "qq-email",
+    "imap",
+    "smtp",
+    "ai"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yixi/qq-email-mcp.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": ">=20.19"
   },

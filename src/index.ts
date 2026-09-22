@@ -14,15 +14,19 @@ import {
 import { FileAuditLogger } from "./security/audit.js";
 import { verifyRuntimePaths } from "./security/runtime-paths.js";
 import { initialize } from "./init.js";
+import { initHelpText, parseInitArgs } from "./init-args.js";
 import path from "node:path";
 
 async function main(): Promise<void> {
   if (process.argv[2] === "init") {
+    const args = parseInitArgs(process.argv.slice(3), {
+      onHelp: () => process.stderr.write(initHelpText())
+    });
     const result = await initialize({
-      configPath: process.argv[3],
-      account: process.argv[4],
-      secret: process.argv[5],
-      credentialsPath: process.argv[6]
+      configPath: args.configPath,
+      account: args.account,
+      secret: args.secret,
+      credentialsPath: args.credentialsPath
     });
     process.stdout.write(
       `${JSON.stringify(
@@ -100,3 +104,4 @@ main().catch((error: unknown) => {
   process.stderr.write(`${message}\n`);
   process.exit(1);
 });
+
