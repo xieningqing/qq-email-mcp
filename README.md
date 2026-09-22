@@ -12,6 +12,24 @@
 
 ## 快速开始
 
+### 方式 A：一键初始化（推荐）
+
+```bash
+npm install
+npm run build
+npm run init
+```
+
+`npm run init` 会依次完成：
+
+- 写入配置模板到 `~/.qq-email-mcp/config.toml`
+- 交互式读取授权码（无回显）并加密存到 `~/.qq-email-mcp/credentials.json`
+- 输出可直接粘贴到客户端的 MCP 配置 JSON
+
+它也会打印当前推荐的客户端配置，通常不需要再手动设置 `cwd` 或环境变量。
+
+### 方式 B：手动配置
+
 ```bash
 npm install
 npm run build
@@ -38,7 +56,39 @@ node dist/index.js
 
 ## 接入 MCP 客户端
 
-在客户端中把 `qq-email-mcp` 注册为一个 stdio server，`command` 使用 Node，`args` 指向构建产物，`cwd` 指向项目根目录：
+配置查找按以下顺序进行，命中即用：
+
+1. 显式传入的 `QQ_EMAIL_MCP_CONFIG`
+2. 当前工作目录的 `qq-email-mcp.toml`
+3. 包安装目录的 `qq-email-mcp.toml`
+4. 用户目录的 `~/.qq-email-mcp/config.toml`
+
+因此只要用 `npm run init` 写好 `~/.qq-email-mcp/config.toml`，客户端配置就能精简成：
+
+```json
+{
+  "mcpServers": {
+    "qq-email-mcp": {
+      "command": "node",
+      "args": ["E:/project/web/qq_email_mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+Windows 上也可以用仓库自带的包装脚本，只保留一个命令：
+
+```json
+{
+  "mcpServers": {
+    "qq-email-mcp": {
+      "command": "E:/project/web/qq_email_mcp/bin/qq-email-mcp.cmd"
+    }
+  }
+}
+```
+
+如果需要保持完全显式（例如多份配置并存），再使用传统写法：
 
 ```json
 {

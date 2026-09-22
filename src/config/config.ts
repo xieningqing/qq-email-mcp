@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse } from "smol-toml";
 import { z } from "zod";
 import { AppError } from "../errors.js";
@@ -94,12 +96,40 @@ export interface ConfigLoadOptions {
   cwd?: string;
 }
 
-export async function loadConfig(options: ConfigLoadOptions = {}): Promise<AppConfig> {
+function packageRoot(): string {
+  // dist/config/config.js -> package root
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
+
+async function firstExisting(paths: string[]): Promise<string | null> {
+  for (const candidate of paths) {
+    try {
+      await readFile(candidate, "utf8");
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      return candidate;
+    }
+  }
+  return null;
+}
+
+export function resolveConfigCandidates(options: ConfigLoadOptions = {}): string[] {
   const cwd = options.cwd ?? process.cwd();
-  const configPath =
-    options.configPath ??
-    process.env.QQ_EMAIL_MCP_CONFIG ??
-    path.resolve(cwd, "qq-email-mcp.toml");
+  return [
+    options.configPath,
+    process.env.QQ_EMAIL_MCP_CONFIG,
+    path.resolve(cwd, "qq-email-mcp.toml"),
+    path.join(packageRoot(), "qq-email-mcp.toml"),
+    path.join(os.homedir(), ".qq-email-mcp", "config.toml")
+  ].filter((value): value is string => Boolean(value));
+}
+
+export async function loadConfig(options: ConfigLoadOptions = {}): Promise<AppConfig> {
+  const candidates = resolveConfigCandidates(options);
+  const configPath = (await firstExisting(candidates)) ?? candidates[0]!;
   const resolvedConfigPath = path.resolve(configPath);
   const configDirectory = path.dirname(resolvedConfigPath);
 

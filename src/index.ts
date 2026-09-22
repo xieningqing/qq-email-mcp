@@ -13,9 +13,32 @@ import {
 } from "./security/credentials.js";
 import { FileAuditLogger } from "./security/audit.js";
 import { verifyRuntimePaths } from "./security/runtime-paths.js";
+import { initialize } from "./init.js";
 import path from "node:path";
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "init") {
+    const result = await initialize({
+      configPath: process.argv[3],
+      account: process.argv[4],
+      secret: process.argv[5],
+      credentialsPath: process.argv[6]
+    });
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          configPath: result.configPath,
+          credentialsPath: result.credentialsPath,
+          clientConfig: result.clientConfig
+        },
+        null,
+        2
+      )}\n`
+    );
+    return;
+  }
+
   const config = await loadConfig();
   const credentialStore = new FallbackCredentialStore(
     new LocalCredentialStore(),
@@ -26,7 +49,9 @@ async function main(): Promise<void> {
     config.security.credentialTarget,
     config.account.email
   );
-  const logDir = path.resolve(process.cwd(), "logs");
+  const logDir = config.configPath
+    ? path.join(path.dirname(config.configPath), "logs")
+    : path.resolve(process.cwd(), "logs");
   await verifyRuntimePaths({
     attachmentDir: config.security.attachmentDir,
     logDir
