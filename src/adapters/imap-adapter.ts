@@ -405,7 +405,12 @@ export class ImapAdapter implements ImapPort {
         query.seen = false;
       }
       if (criteria.query) {
-        query.text = criteria.query;
+        // QQ Mail ignores IMAP TEXT and returns the whole mailbox, so search the
+        // subject and body explicitly instead.
+        query.or = [
+          { header: { subject: criteria.query } },
+          { body: criteria.query }
+        ];
       }
       if (criteria.from) {
         query.from = criteria.from;

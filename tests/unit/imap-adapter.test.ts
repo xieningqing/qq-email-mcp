@@ -23,6 +23,7 @@ class FakeClient extends EventEmitter {
   specialUse: string | null = "\\Inbox";
   failMailboxOpenCode: string | null = null;
   searchCalls = 0;
+  searchQueries: Array<Record<string, unknown>> = [];
   fetchCalls: Array<{ range: number[]; query: Record<string, unknown> }> = [];
 
   async connect(): Promise<void> {
@@ -117,8 +118,9 @@ class FakeClient extends EventEmitter {
 
   searchResult: number[] | false = [999];
 
-  async search(): Promise<number[] | false> {
+  async search(query: Record<string, unknown> = {}): Promise<number[] | false> {
     this.searchCalls += 1;
+    this.searchQueries.push(query);
     return this.searchResult;
   }
 
@@ -297,6 +299,19 @@ describe("ImapAdapter reconnection", () => {
     clients[0]!.searchResult = [];
 
     await expect(adapter.search({ query: "invoice" })).resolves.toEqual([]);
+  });
+
+  it("searches keywords in subject or body instead of unreliable TEXT", async () => {
+    const { adapter, clients } = createAdapter();
+
+    await adapter.search({ query: "invoice" });
+
+    const query = clients[0]!.searchQueries[0]!;
+    expect(query.text).toBeUndefined();
+    expect(query.or).toEqual([
+      { header: { subject: "invoice" } },
+      { body: "invoice" }
+    ]);
   });
 
   it("does not guess folder roles without a server special-use flag", async () => {
